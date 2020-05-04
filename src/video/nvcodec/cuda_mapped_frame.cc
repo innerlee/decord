@@ -40,7 +40,7 @@ CUMappedFrame::CUMappedFrame(CUVIDPARSERDISPINFO* disp_info,
 
 CUMappedFrame::CUMappedFrame(CUMappedFrame&& other)
     : disp_info{other.disp_info}, valid_{other.valid_}, decoder_{other.decoder_},
-      ptr_{other.ptr_}, pitch_{other.pitch_}, params_{other.params_} {
+      ptr_{other.ptr_}, pitch_{other.pitch_}, params_(other.params_) {
     other.disp_info = nullptr;
     other.valid_ = false;
 }
