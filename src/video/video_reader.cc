@@ -26,6 +26,7 @@ using AVPacketPool = ffmpeg::AVPacketPool;
 VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height, int nb_thread)
      : ctx_(ctx), key_indices_(), frame_ts_(), codecs_(), actv_stm_idx_(-1), decoder_(), curr_frame_(0),
      num_frames_(-1), nb_thread_decoding_(nb_thread), width_(width), height_(height), eof_(false) {
+    auto start = std::chrono::steady_clock::now();
     // av_register_all deprecated in latest versions
     #if ( LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(58,9,100) )
     av_register_all();
@@ -51,6 +52,11 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height, i
         LOG(FATAL) << "ERROR getting stream info of file" << fn;
     }
 
+    auto start1x = std::chrono::steady_clock::now();
+    LOG(INFO) << "VideoReader [avformat_find_stream_info] " << fn << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start1x - start1).count()
+		<< "us";
+
     // initialize all video streams and store codecs info
     for (uint32_t i = 0; i < fmt_ctx_->nb_streams; ++i) {
         AVStream *st = fmt_ctx_->streams[i];
@@ -67,7 +73,7 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height, i
 
     auto start2 = std::chrono::steady_clock::now();
     LOG(INFO) << "VideoReader [initialize stream] " << fn << " in "
-		<< std::chrono::duration_cast<std::chrono::microseconds>(start2 - start1).count()
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start2 - start1x).count()
 		<< "us";
 
     // LOG(INFO) << "initialized all streams";
