@@ -37,7 +37,7 @@ class VideoReaderInterface {
     /*! \brief check if video file successfully opened */
     virtual void SetVideoStream(int stream_nb = -1) = 0;
     /*! \brief get the total frame count in current stream */
-    virtual int64_t GetFrameCount() const = 0;
+    virtual int64_t GetFrameCount() = 0;
     /*! \brief get the current frame position in current stream */
     virtual int64_t GetCurrentPosition() const = 0;
     /*! \brief read the next frame, return NDArray */
@@ -62,7 +62,7 @@ class VideoReaderInterface {
     // virtual runtime::NDArray Seek(uint64_t pos) = 0;
     /**
      * \brief Seek to nearest keyframe before frame pos
-     * 
+     *
      * \param pos The frame position
      * \return true Success
      * \return false Failed
@@ -70,7 +70,7 @@ class VideoReaderInterface {
     virtual bool Seek(int64_t pos) = 0;
     /**
      * \brief Seek accurately to given position
-     * 
+     *
      * \param pos Frame position
      * \return true Success
      * \return false Failed
@@ -85,7 +85,7 @@ DECORD_DLL VideoReaderPtr GetVideoReader(std::string fname, DLContext ctx);
 
 /**
  * \brief Interface of VideoLoader, pure virtual class
- * 
+ *
  */
 class VideoLoaderInterface {
     public:

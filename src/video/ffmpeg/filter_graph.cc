@@ -23,6 +23,7 @@ FFMPEGFilterGraph::~FFMPEGFilterGraph() {
 }
 
 void FFMPEGFilterGraph::Init(std::string filters_descr, AVCodecContext *dec_ctx) {
+    auto start = std::chrono::steady_clock::now();
     char args[512];
     #if LIBAVFILTER_VERSION_INT < AV_VERSION_INT(7,14,100)
     avfilter_register_all();
@@ -40,9 +41,10 @@ void FFMPEGFilterGraph::Init(std::string filters_descr, AVCodecContext *dec_ctx)
 	// AVBufferSinkParams *buffersink_params;
 
 	filter_graph_.reset(avfilter_graph_alloc());
+
 	/* automatic threading */
 	//LOG(INFO) << "Original GraphFilter nb_threads: " << filter_graph_->nb_threads;
-	filter_graph_->nb_threads = 0;
+	filter_graph_->nb_threads = 1;
     /* buffer video source: the decoded frames from the decoder will be inserted here. */
 	std::snprintf(args, sizeof(args),
             "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
@@ -54,6 +56,10 @@ void FFMPEGFilterGraph::Init(std::string filters_descr, AVCodecContext *dec_ctx)
     //         dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt);
 
     // LOG(INFO) << "filter args: " << args;
+
+    auto start1 = std::chrono::steady_clock::now();
+    LOG(INFO) << "FFMPEGFilterGraph [a] "
+              << std::chrono::duration_cast<std::chrono::microseconds>(start1 - start).count() << "us";
 
     // AVFilterContext *buffersrc_ctx;
     // AVFilterContext *buffersink_ctx;

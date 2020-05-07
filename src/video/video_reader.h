@@ -39,7 +39,7 @@ class VideoReader : public VideoReaderInterface {
         ~VideoReader();
         void SetVideoStream(int stream_nb = -1);
         unsigned int QueryStreams() const;
-        int64_t GetFrameCount() const;
+        int64_t GetFrameCount();
         int64_t GetCurrentPosition() const;
         NDArray NextFrame();
         NDArray GetBatch(std::vector<int64_t> indices, NDArray buf);
@@ -73,6 +73,7 @@ class VideoReader : public VideoReaderInterface {
         ffmpeg::AVFormatContextPtr fmt_ctx_;
         ThreadedDecoderPtr decoder_;
         int64_t curr_frame_;  // current frame location
+        int64_t num_frames_;  // current frame location
         int width_;   // output video width
         int height_;  // output video height
         bool eof_;  // end of file indicator

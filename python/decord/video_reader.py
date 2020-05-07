@@ -11,6 +11,7 @@ from .base import DECORDError
 from . import ndarray as _nd
 from .ndarray import cpu, gpu
 from .bridge import bridge_out
+import datetime
 
 VideoReaderHandle = ctypes.c_void_p
 
@@ -31,17 +32,27 @@ class VideoReader(object):
 
     """
     def __init__(self, uri, ctx=cpu(0), width=-1, height=-1):
+        a = datetime.datetime.now()
         assert isinstance(ctx, DECORDContext)
         self._handle = None
         self._handle = _CAPI_VideoReaderGetVideoReader(
             uri, ctx.device_type, ctx.device_id, width, height)
         if self._handle is None:
             raise RuntimeError("Error reading " + uri + "...")
+        b = datetime.datetime.now()
+
         self._num_frame = _CAPI_VideoReaderGetFrameCount(self._handle)
+        c = datetime.datetime.now()
         assert self._num_frame > 0, "Invalid frame count: {}".format(self._num_frame)
         self._key_indices = _CAPI_VideoReaderGetKeyIndices(self._handle).asnumpy().tolist()
         self._frame_pts = _CAPI_VideoReaderGetFramePTS(self._handle).asnumpy()
         self._avg_fps = _CAPI_VideoReaderGetAverageFPS(self._handle)
+        d = datetime.datetime.now()
+        print('init in python ', (d - a).microseconds, "us",
+            ", GetVideoReader",  (b - a).microseconds, "us",
+            ", GetFrameCount",  (c - b).microseconds, "us",
+            ", others",  (d - c).microseconds, "us",
+            )
 
     def __del__(self):
         if self._handle:

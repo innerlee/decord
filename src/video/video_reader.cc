@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <decord/runtime/ndarray.h>
 #include <decord/runtime/c_runtime_api.h>
+#include <chrono>
 
 namespace decord {
 
@@ -24,7 +25,8 @@ using AVPacketPool = ffmpeg::AVPacketPool;
 
 VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height)
      : ctx_(ctx), key_indices_(), frame_ts_(), codecs_(), actv_stm_idx_(-1), decoder_(), curr_frame_(0),
-     width_(width), height_(height), eof_(false) {
+     num_frames_(-1), width_(width), height_(height), eof_(false) {
+    auto start = std::chrono::steady_clock::now();
     // av_register_all deprecated in latest versions
     #if ( LIBAVFORMAT_VERSION_INT < AV_VERSION_INT(58,9,100) )
     av_register_all();
@@ -39,6 +41,11 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height)
         return;
     }
     fmt_ctx_.reset(fmt_ctx);
+
+    auto start1 = std::chrono::steady_clock::now();
+    LOG(INFO) << "VideoReader [avformat_open_input] " << fn << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start1 - start).count()
+		<< "us";
 
     // find stream info
     if (avformat_find_stream_info(fmt_ctx,  NULL) < 0) {
@@ -58,10 +65,22 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height)
             codecs_.emplace_back(tmp);
         }
     }
+
+    auto start2 = std::chrono::steady_clock::now();
+    LOG(INFO) << "VideoReader [initialize stream] " << fn << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start2 - start1).count()
+		<< "us";
+
     // LOG(INFO) << "initialized all streams";
     // find best video stream (-1 means auto, relay on FFMPEG)
     SetVideoStream(-1);
     // LOG(INFO) << "Set video stream";
+
+    auto start3 = std::chrono::steady_clock::now();
+    LOG(INFO) << "VideoReader [set stream] " << fn << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start3 - start2).count()
+		<< "us";
+
     decoder_->Start();
 
     // // allocate AVFrame buffer
@@ -71,6 +90,10 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height)
     // // allocate AVPacket buffer
     // pkt_ = av_packet_alloc();
     // CHECK(pkt_) << "ERROR failed to allocated memory for AVPacket";
+    auto end = std::chrono::steady_clock::now();
+    LOG(INFO) << "VideoReader of " << fn << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+		<< "us";
 }
 
 VideoReader::~VideoReader(){
@@ -80,16 +103,20 @@ VideoReader::~VideoReader(){
 }
 
 void VideoReader::SetVideoStream(int stream_nb) {
+    auto start = std::chrono::steady_clock::now();
     CHECK(fmt_ctx_ != NULL);
     AVCodec *dec;
     int st_nb = av_find_best_stream(fmt_ctx_.get(), AVMEDIA_TYPE_VIDEO, stream_nb, -1, &dec, 0);
     // LOG(INFO) << "find best stream: " << st_nb;
+
     CHECK_GE(st_nb, 0) << "ERROR cannot find video stream with wanted index: " << stream_nb;
     // initialize the mem for codec context
     CHECK(codecs_[st_nb] == dec) << "Codecs of " << st_nb << " is NULL";
     // LOG(INFO) << "codecs of stream: " << codecs_[st_nb] << " name: " <<  codecs_[st_nb]->name;
+
     ffmpeg::AVCodecParametersPtr codecpar;
     codecpar.reset(avcodec_parameters_alloc());
+
     CHECK_GE(avcodec_parameters_copy(codecpar.get(), fmt_ctx_->streams[st_nb]->codecpar), 0)
         << "Error copy stream->codecpar to buffer codecpar";
     if (kDLCPU == ctx_.device_type) {
@@ -115,6 +142,7 @@ void VideoReader::SetVideoStream(int stream_nb) {
     CHECK_GE(avcodec_parameters_to_context(dec_ctx, codecpar.get()), 0)
         << "ERROR copying codec parameters to context";
     // initialize AVCodecContext to use given AVCodec
+
     int open_ret = avcodec_open2(dec_ctx, codecs_[st_nb], NULL);
     if (open_ret < 0 ) {
         char errstr[200];
@@ -122,6 +150,12 @@ void VideoReader::SetVideoStream(int stream_nb) {
         LOG(FATAL) << "ERROR open codec through avcodec_open2: " << errstr;
         return;
     }
+
+    auto start1 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SetVideoStream [avcodec_open2] " << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start1 - start).count()
+		<< "us";
+
     // CHECK_GE(avcodec_open2(dec_ctx, codecs_[st_nb], NULL), 0)
     //     << "ERROR open codec through avcodec_open2";
     // LOG(INFO) << "codecs opened.";
@@ -148,7 +182,18 @@ void VideoReader::SetVideoStream(int stream_nb) {
         ndarray_pool_ = NDArrayPool(0, {height_, width_, 3}, kUInt8, ctx_);
     }
 
+    auto start1x = std::chrono::steady_clock::now();
+    LOG(INFO) << "SetVideoStream [before SetCodecContext] " << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start1x - start1).count()
+		<< "us";
+
     decoder_->SetCodecContext(dec_ctx, width_, height_, rotation);
+
+    auto start2 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SetVideoStream [SetCodecContext] " << " in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start2 - start1x).count()
+		<< "us";
+
     IndexKeyframes();
 }
 
@@ -187,9 +232,9 @@ unsigned int VideoReader::QueryStreams() const {
     return fmt_ctx_->nb_streams;
 }
 
-int64_t VideoReader::GetFrameCount() const {
-    if (frame_ts_.size() > 0) {
-        return frame_ts_.size();
+int64_t VideoReader::GetFrameCount() {
+    if (num_frames_ > 0) {
+        return num_frames_;
     }
     CHECK(fmt_ctx_ != NULL);
     CHECK(actv_stm_idx_ >= 0);
@@ -200,7 +245,8 @@ int64_t VideoReader::GetFrameCount() const {
         // many formats do not provide accurate frame count, use duration and FPS to approximate
         cnt = static_cast<double>(stm->avg_frame_rate.num) / stm->avg_frame_rate.den * fmt_ctx_->duration / AV_TIME_BASE;
     }
-    return cnt;
+    num_frames_ = cnt;
+    return num_frames_;
 }
 
 int64_t VideoReader::GetCurrentPosition() const {
@@ -249,6 +295,7 @@ int64_t VideoReader::LocateKeyframe(int64_t pos) {
 
 bool VideoReader::SeekAccurate(int64_t pos) {
     if (curr_frame_ == pos) return true;
+    LOG(INFO) << "seek " << pos << std::endl;
     int64_t key_pos = LocateKeyframe(pos);
     int64_t curr_key_pos = LocateKeyframe(curr_frame_);
     if (key_pos != curr_key_pos) {
@@ -337,6 +384,7 @@ NDArray VideoReader::NextFrame() {
 }
 
 void VideoReader::IndexKeyframes() {
+    auto start = std::chrono::steady_clock::now();
     CHECK(actv_stm_idx_ >= 0) << "Invalid active stream index, not yet initialized!";
     key_indices_.clear();
     frame_ts_.clear();
@@ -377,6 +425,10 @@ void VideoReader::IndexKeyframes() {
                 {return a.pts < b.pts;});
     curr_frame_ = GetFrameCount();
     ret = Seek(0);
+    auto end = std::chrono::steady_clock::now();
+    LOG(INFO) << "IndexKeyframes in "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(end - start).count()
+		<< "us";
 }
 
 runtime::NDArray VideoReader::GetKeyIndices() {
@@ -432,42 +484,72 @@ std::vector<int64_t> VideoReader::GetKeyIndicesVector() const {
 }
 
 void VideoReader::SkipFrames(int64_t num) {
+    auto start = std::chrono::steady_clock::now();
     // check if skip pass keyframes, if so, we can seek to latest keyframe first
-    // LOG(INFO) << " Skip Frame start: " << num << " current frame: " << curr_frame_;
+    LOG(INFO) << " Skip Frame start: " << num << " current frame: " << curr_frame_;
     if (num < 1) return;
     num = std::min(GetFrameCount() - curr_frame_, num);
     auto it1 = std::upper_bound(key_indices_.begin(), key_indices_.end(), curr_frame_) - 1;
     CHECK_GE(it1 - key_indices_.begin(), 0);
     auto it2 = std::upper_bound(key_indices_.begin(), key_indices_.end(), curr_frame_ + num) - 1;
     CHECK_GE(it2 - key_indices_.begin(), 0);
-    // LOG(INFO) << "first: " << it1 - key_indices_.begin() << " second: " << it2 - key_indices_.begin() << ", " << *it1 << ", " << *it2;
+    LOG(INFO) << "first: " << it1 - key_indices_.begin() << " second: " << it2 - key_indices_.begin() << ", " << *it1 << ", " << *it2;
     if (it2 > it1) {
         int64_t old_frame = curr_frame_;
-        // LOG(INFO) << "Seek to frame: " << *it2;
+        LOG(INFO) << "Seek to frame: " << *it2;
         Seek(*it2);
-        // LOG(INFO) << "current: " << curr_frame_ << ", adjust skip from " << num << " to " << num + old_frame - *it2;
+        LOG(INFO) << "current: " << curr_frame_ << ", adjust skip from " << num << " to " << num + old_frame - *it2;
         num += old_frame - *it2;
     }
     if (num < 1) return;
 
-    // LOG(INFO) << "started skipping with: " << num;
+    auto start1 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SkipFrames [a] "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start1 - start).count()
+		<< "us";
+
+    LOG(INFO) << "started skipping with: " << num;
     NDArray frame;
     decoder_->Start();
     bool ret = false;
     std::vector<int64_t> frame_pos(num);
     std::iota(frame_pos.begin(), frame_pos.end(), curr_frame_);
     auto pts = FramesToPTS(frame_pos);
+
+    auto start2 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SkipFrames [b] "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start2 - start1).count()
+		<< "us";
+
     decoder_->SuggestDiscardPTS(pts);
+
+    auto start3 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SkipFrames [c] "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start3 - start2).count()
+		<< "us";
+
     curr_frame_ += num;
     while (num > 0) {
+        auto startx = std::chrono::steady_clock::now();
         PushNext();
         ret = decoder_->Pop(&frame);
+        auto startx2 = std::chrono::steady_clock::now();
         if (!ret) continue;
         // LOG(INFO) << "skip: " << num;
         --num;
+        auto endx = std::chrono::steady_clock::now();
+        LOG(INFO) << "skiping " << num << " "
+            << std::chrono::duration_cast<std::chrono::microseconds>(endx - startx).count()
+            << "us, Pop: " << std::chrono::duration_cast<std::chrono::microseconds>(startx2 - startx).count();
     }
     decoder_->ClearDiscardPTS();
-    // LOG(INFO) << " stopped skipframes: " << curr_frame_;
+
+    auto start4 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SkipFrames [d] "
+		<< std::chrono::duration_cast<std::chrono::microseconds>(start4 - start3).count()
+		<< "us";
+
+    LOG(INFO) << " stopped skipframes: " << curr_frame_;
 }
 
 NDArray VideoReader::GetBatch(std::vector<int64_t> indices, NDArray buf) {

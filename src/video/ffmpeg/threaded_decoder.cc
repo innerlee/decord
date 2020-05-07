@@ -11,34 +11,56 @@
 namespace decord {
 namespace ffmpeg {
 
-FFMPEGThreadedDecoder::FFMPEGThreadedDecoder() : frame_count_(0), draining_(false), run_(false), error_status_(false), error_message_() {
-}
+FFMPEGThreadedDecoder::FFMPEGThreadedDecoder()
+    : frame_count_(0), draining_(false), run_(false), error_status_(false), error_message_() {}
 
 void FFMPEGThreadedDecoder::SetCodecContext(AVCodecContext *dec_ctx, int width, int height, int rotation) {
+    auto start = std::chrono::steady_clock::now();
     bool running = run_.load();
     Clear();
+
+    auto start1 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SetCodecContext [Clear] "
+              << std::chrono::duration_cast<std::chrono::microseconds>(start1 - start).count() << "us";
+
     dec_ctx_.reset(dec_ctx);
-    // LOG(INFO) << dec_ctx->width << " x " << dec_ctx->height << " : " << dec_ctx->time_base.num << " , " << dec_ctx->time_base.den;
-    // std::string descr = "scale=320:240";
+    // LOG(INFO) << dec_ctx->width << " x " << dec_ctx->height << " : " << dec_ctx->time_base.num << " , " <<
+    // dec_ctx->time_base.den; std::string descr = "scale=320:240";
+
+    auto start2 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SetCodecContext [reset] "
+              << std::chrono::duration_cast<std::chrono::microseconds>(start2 - start1).count() << "us";
+
     char descr[128];
-    switch(rotation) {
-        case 90:
-            std::snprintf(descr, sizeof(descr), "transpose=1,scale=%d:%d", width, height);
-            break;
-        case 180:
-            std::snprintf(descr, sizeof(descr), "transpose=1,transpose=1,scale=%d:%d", width, height);
-            break;
-        case 270:
-            std::snprintf(descr, sizeof(descr), "transpose=2,scale=%d:%d", width, height);
-            break;
-        case 0:
-        default:
-            std::snprintf(descr, sizeof(descr), "scale=%d:%d", width, height);
+    switch (rotation) {
+    case 90:
+        std::snprintf(descr, sizeof(descr), "transpose=1,scale=%d:%d", width, height);
+        break;
+    case 180:
+        std::snprintf(descr, sizeof(descr), "transpose=1,transpose=1,scale=%d:%d", width, height);
+        break;
+    case 270:
+        std::snprintf(descr, sizeof(descr), "transpose=2,scale=%d:%d", width, height);
+        break;
+    case 0:
+    default:
+        std::snprintf(descr, sizeof(descr), "scale=%d:%d", width, height);
     }
+    LOG(INFO) << descr;
     filter_graph_ = FFMPEGFilterGraphPtr(new FFMPEGFilterGraph(descr, dec_ctx_.get()));
+
+    auto start3 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SetCodecContext [filter_graph_] "
+              << std::chrono::duration_cast<std::chrono::microseconds>(start3 - start2).count() << "us";
+
     if (running) {
         Start();
     }
+
+    auto start4 = std::chrono::steady_clock::now();
+    LOG(INFO) << "SetCodecContext [Start] "
+              << std::chrono::duration_cast<std::chrono::microseconds>(start4 - start3).count() << "us";
+
 }
 
 void FFMPEGThreadedDecoder::Start() {
@@ -80,8 +102,8 @@ void FFMPEGThreadedDecoder::Clear() {
     frame_count_.store(0);
     draining_.store(false);
     {
-      std::lock_guard<std::mutex> lock(pts_mutex_);
-      discard_pts_.clear();
+        std::lock_guard<std::mutex> lock(pts_mutex_);
+        discard_pts_.clear();
     }
     error_status_.store(false);
     {
@@ -133,16 +155,14 @@ bool FFMPEGThreadedDecoder::Pop(runtime::NDArray *frame) {
     return (ret && frame->data_);
 }
 
-FFMPEGThreadedDecoder::~FFMPEGThreadedDecoder() {
-    Stop();
-}
+FFMPEGThreadedDecoder::~FFMPEGThreadedDecoder() { Stop(); }
 
 void FFMPEGThreadedDecoder::ProcessFrame(AVFramePtr frame, NDArray out_buf) {
     frame->pts = frame->best_effort_timestamp;
     bool skip = false;
     {
-      std::lock_guard<std::mutex> lock(pts_mutex_);
-      skip = discard_pts_.find(frame->pts) != discard_pts_.end();
+        std::lock_guard<std::mutex> lock(pts_mutex_);
+        skip = discard_pts_.find(frame->pts) != discard_pts_.end();
     }
     if (skip) {
         // skip resize/filtering
@@ -181,7 +201,8 @@ void FFMPEGThreadedDecoder::WorkerThread() {
 void FFMPEGThreadedDecoder::WorkerThreadImpl() {
     while (run_.load()) {
         // CHECK(filter_graph_) << "FilterGraph not initialized.";
-        if (!filter_graph_) return;
+        if (!filter_graph_)
+            return;
         AVPacketPtr pkt;
 
         int got_picture;
@@ -208,7 +229,8 @@ void FFMPEGThreadedDecoder::WorkerThreadImpl() {
                 }
                 NDArray out_buf;
                 bool get_buf = buffer_queue_->Pop(&out_buf);
-                if (!get_buf) return;
+                if (!get_buf)
+                    return;
                 ProcessFrame(frame, out_buf);
             }
         } else {
@@ -218,7 +240,8 @@ void FFMPEGThreadedDecoder::WorkerThreadImpl() {
             if (got_picture == 0) {
                 NDArray out_buf;
                 bool get_buf = buffer_queue_->Pop(&out_buf);
-                if (!get_buf) return;
+                if (!get_buf)
+                    return;
                 ProcessFrame(frame, out_buf);
             } else if (AVERROR(EAGAIN) == got_picture || AVERROR_EOF == got_picture) {
                 frame_queue_->Push(NDArray());
@@ -236,8 +259,7 @@ NDArray FFMPEGThreadedDecoder::CopyToNDArray(AVFramePtr p) {
     CHECK(p) << "Error: converting empty AVFrame to DLTensor";
     // int channel = p->linesize[0] / p->width;
     CHECK(AVPixelFormat(p->format) == AV_PIX_FMT_RGB24 || AVPixelFormat(p->format) == AV_PIX_FMT_GRAY8)
-        << "Only support RGB24/GRAY8 image to NDArray conversion, given: "
-        << AVPixelFormat(p->format);
+        << "Only support RGB24/GRAY8 image to NDArray conversion, given: " << AVPixelFormat(p->format);
     int channel = AVPixelFormat(p->format) == AV_PIX_FMT_RGB24 ? 3 : 1;
     // CHECK(p->linesize[0] % p->width == 0)
     //     << "AVFrame data is not a compact array. linesize: " << p->linesize[0]
@@ -255,17 +277,15 @@ NDArray FFMPEGThreadedDecoder::CopyToNDArray(AVFramePtr p) {
     // arr.CopyFrom(&dlt);
     for (int i = 0; i < p->height; ++i) {
         // copy line by line
-        device_api->CopyDataFromTo(
-            from_ptr, i * p->linesize[0],
-            to_ptr, i * linesize,
-            linesize, ctx, ctx, kUInt8, nullptr);
+        device_api->CopyDataFromTo(from_ptr, i * p->linesize[0], to_ptr, i * linesize, linesize, ctx, ctx, kUInt8,
+                                   nullptr);
     }
     return arr;
 }
 
 static void AVFrameManagerDeleter(DLManagedTensor *manager) {
-	delete static_cast<AVFrameManager*>(manager->manager_ctx);
-	delete manager;
+    delete static_cast<AVFrameManager *>(manager->manager_ctx);
+    delete manager;
 }
 
 NDArray FFMPEGThreadedDecoder::AsNDArray(AVFramePtr p) {
@@ -273,13 +293,13 @@ NDArray FFMPEGThreadedDecoder::AsNDArray(AVFramePtr p) {
         // Fallback to copy since original AVFrame is not compact
         return CopyToNDArray(p);
     }
-	DLManagedTensor* manager = new DLManagedTensor();
+    DLManagedTensor *manager = new DLManagedTensor();
     auto av_manager = new AVFrameManager(p);
-	manager->manager_ctx = av_manager;
-	ToDLTensor(p, manager->dl_tensor, av_manager->shape);
-	manager->deleter = AVFrameManagerDeleter;
-	NDArray arr = NDArray::FromDLPack(manager);
-	return arr;
+    manager->manager_ctx = av_manager;
+    ToDLTensor(p, manager->dl_tensor, av_manager->shape);
+    manager->deleter = AVFrameManagerDeleter;
+    NDArray arr = NDArray::FromDLPack(manager);
+    return arr;
 }
 
 void FFMPEGThreadedDecoder::CheckErrorStatus() {
@@ -297,5 +317,5 @@ void FFMPEGThreadedDecoder::RecordInternalError(std::string message) {
     error_status_.store(true);
 }
 
-}  // namespace ffmpeg
-}  // namespace decord
+} // namespace ffmpeg
+} // namespace decord
