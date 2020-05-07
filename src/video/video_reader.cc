@@ -33,7 +33,9 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height, i
     #endif
 
     AVFormatContext *fmt_ctx = nullptr;
-    int open_ret = avformat_open_input(&fmt_ctx, fn.c_str(), NULL, NULL);
+    AVDictionary *format_opts = nullptr;
+    // av_dict_set(&format_opts, "probesize", "32", 0);
+    int open_ret = avformat_open_input(&fmt_ctx, fn.c_str(), NULL, &format_opts);
     if( open_ret != 0 ) {
         char errstr[200];
         av_strerror(open_ret, errstr, 200);
@@ -48,6 +50,7 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height, i
 		<< "us";
 
     // find stream info
+    LOG(INFO) << "probesize: " << fmt_ctx->probesize;
     if (avformat_find_stream_info(fmt_ctx,  NULL) < 0) {
         LOG(FATAL) << "ERROR getting stream info of file" << fn;
     }
@@ -81,10 +84,10 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height, i
     SetVideoStream(-1);
     // LOG(INFO) << "Set video stream";
 
-    auto start3 = std::chrono::steady_clock::now();
-    LOG(INFO) << "VideoReader [set stream] " << fn << " in "
-		<< std::chrono::duration_cast<std::chrono::microseconds>(start3 - start2).count()
-		<< "us";
+    // auto start3 = std::chrono::steady_clock::now();
+    // LOG(INFO) << "VideoReader [set stream] " << fn << " in "
+	// 	<< std::chrono::duration_cast<std::chrono::microseconds>(start3 - start2).count()
+	// 	<< "us";
 
     decoder_->Start();
 
