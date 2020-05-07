@@ -29,14 +29,16 @@ class VideoReader(object):
         Desired output width of the video, unchanged if `-1` is specified.
     height : int, default is -1
         Desired output height of the video, unchanged if `-1` is specified.
+    num_threads : int, default is 0
+        Number of decoding thread, auto if `0` is specified.
 
     """
-    def __init__(self, uri, ctx=cpu(0), width=-1, height=-1):
+    def __init__(self, uri, ctx=cpu(0), width=-1, height=-1, num_threads=0):
         a = datetime.datetime.now()
         assert isinstance(ctx, DECORDContext)
         self._handle = None
         self._handle = _CAPI_VideoReaderGetVideoReader(
-            uri, ctx.device_type, ctx.device_id, width, height)
+            uri, ctx.device_type, ctx.device_id, width, height, num_threads)
         if self._handle is None:
             raise RuntimeError("Error reading " + uri + "...")
         b = datetime.datetime.now()
@@ -44,9 +46,9 @@ class VideoReader(object):
         self._num_frame = _CAPI_VideoReaderGetFrameCount(self._handle)
         c = datetime.datetime.now()
         assert self._num_frame > 0, "Invalid frame count: {}".format(self._num_frame)
-        self._key_indices = _CAPI_VideoReaderGetKeyIndices(self._handle).asnumpy().tolist()
-        self._frame_pts = _CAPI_VideoReaderGetFramePTS(self._handle).asnumpy()
-        self._avg_fps = _CAPI_VideoReaderGetAverageFPS(self._handle)
+        self._key_indices = None
+        self._frame_pts = None
+        self._avg_fps = None
         d = datetime.datetime.now()
         print('init in python ', (d - a).microseconds, "us",
             ", GetVideoReader",  (b - a).microseconds, "us",
@@ -140,6 +142,8 @@ class VideoReader(object):
         if isinstance(idx, slice):
             idx = self.get_batch(range(*idx.indices(len(self))))
         idx = self._validate_indices(idx).asnumpy()
+        if self._frame_pts is None:
+            self._frame_pts = _CAPI_VideoReaderGetFramePTS(self._handle).asnumpy()
         return self._frame_pts[idx, :]
 
 
@@ -173,6 +177,8 @@ class VideoReader(object):
             List of key frame indices.
 
         """
+        if self._key_indices is None:
+            self._key_indices = _CAPI_VideoReaderGetKeyIndices(self._handle).asnumpy().tolist()
         return self._key_indices
 
     def get_avg_fps(self):
@@ -184,6 +190,8 @@ class VideoReader(object):
             Average FPS.
 
         """
+        if self._avg_fps is None:
+            self._avg_fps = _CAPI_VideoReaderGetAverageFPS(self._handle)
         return self._avg_fps
 
     def seek(self, pos):
