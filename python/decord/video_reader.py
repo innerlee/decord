@@ -35,6 +35,7 @@ class VideoReader(object):
     """
     def __init__(self, uri, ctx=cpu(0), width=-1, height=-1, num_threads=0):
         a = datetime.datetime.now()
+        print(a)
         assert isinstance(ctx, DECORDContext)
         self._handle = None
         self._handle = _CAPI_VideoReaderGetVideoReader(
@@ -50,15 +51,22 @@ class VideoReader(object):
         self._frame_pts = None
         self._avg_fps = None
         d = datetime.datetime.now()
-        print('init in python ', (d - a).microseconds, "us",
-            ", GetVideoReader",  (b - a).microseconds, "us",
-            ", GetFrameCount",  (c - b).microseconds, "us",
-            ", others",  (d - c).microseconds, "us",
-            )
+        # print('init in python ', (d - a).microseconds, "us",
+        #     ", GetVideoReader",  (b - a).microseconds, "us",
+        #     ", GetFrameCount",  (c - b).microseconds, "us",
+        #     ", others",  (d - c).microseconds, "us",
+        #     )
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
 
     def __del__(self):
+        a = datetime.datetime.now()
         if self._handle:
             _CAPI_VideoReaderFree(self._handle)
+        b = datetime.datetime.now()
+        print('del in python ', (b - a).microseconds, "us")
 
     def __len__(self):
         """Get length of the video. Note that sometimes FFMPEG reports inaccurate number of frames,

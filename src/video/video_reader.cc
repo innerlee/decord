@@ -304,7 +304,8 @@ int64_t VideoReader::LocateKeyframe(int64_t pos) {
 
 bool VideoReader::SeekAccurate(int64_t pos) {
     if (curr_frame_ == pos) return true;
-    LOG(INFO) << "seek " << pos << std::endl;
+    LOG(INFO);
+    LOG(INFO) << "seek " << pos;
     int64_t key_pos = LocateKeyframe(pos);
     int64_t curr_key_pos = LocateKeyframe(curr_frame_);
     if (key_pos != curr_key_pos) {
@@ -493,7 +494,7 @@ std::vector<int64_t> VideoReader::GetKeyIndicesVector() const {
 }
 
 void VideoReader::SkipFrames(int64_t num) {
-    auto start = std::chrono::steady_clock::now();
+    // auto start = std::chrono::steady_clock::now();
     // check if skip pass keyframes, if so, we can seek to latest keyframe first
     LOG(INFO) << " Skip Frame start: " << num << " current frame: " << curr_frame_;
     if (num < 1) return;
@@ -512,12 +513,12 @@ void VideoReader::SkipFrames(int64_t num) {
     }
     if (num < 1) return;
 
-    auto start1 = std::chrono::steady_clock::now();
-    LOG(INFO) << "SkipFrames [a] "
-		<< std::chrono::duration_cast<std::chrono::microseconds>(start1 - start).count()
-		<< "us";
+    // auto start1 = std::chrono::steady_clock::now();
+    // LOG(INFO) << "SkipFrames [a] "
+	// 	<< std::chrono::duration_cast<std::chrono::microseconds>(start1 - start).count()
+	// 	<< "us";
 
-    LOG(INFO) << "started skipping with: " << num;
+    // LOG(INFO) << "started skipping with: " << num;
     NDArray frame;
     decoder_->Start();
     bool ret = false;
@@ -525,18 +526,18 @@ void VideoReader::SkipFrames(int64_t num) {
     std::iota(frame_pos.begin(), frame_pos.end(), curr_frame_);
     auto pts = FramesToPTS(frame_pos);
 
-    auto start2 = std::chrono::steady_clock::now();
-    LOG(INFO) << "SkipFrames [b] "
-		<< std::chrono::duration_cast<std::chrono::microseconds>(start2 - start1).count()
-		<< "us";
+    // auto start2 = std::chrono::steady_clock::now();
+    // LOG(INFO) << "SkipFrames [b] "
+	// 	<< std::chrono::duration_cast<std::chrono::microseconds>(start2 - start1).count()
+	// 	<< "us";
 
     decoder_->SuggestDiscardPTS(pts);
 
     auto start3 = std::chrono::steady_clock::now();
-    LOG(INFO) << "SkipFrames [c] "
-		<< std::chrono::duration_cast<std::chrono::microseconds>(start3 - start2).count()
-		<< "us";
-
+    // LOG(INFO) << "SkipFrames [c] "
+	// 	<< std::chrono::duration_cast<std::chrono::microseconds>(start3 - start2).count()
+	// 	<< "us";
+    auto nnn = num;
     curr_frame_ += num;
     while (num > 0) {
         auto startx = std::chrono::steady_clock::now();
@@ -547,7 +548,7 @@ void VideoReader::SkipFrames(int64_t num) {
         // LOG(INFO) << "skip: " << num;
         --num;
         auto endx = std::chrono::steady_clock::now();
-        LOG(INFO) << "skiping " << num << " "
+        LOG(INFO) << "skiping " << nnn - num << " "
             << std::chrono::duration_cast<std::chrono::microseconds>(endx - startx).count()
             << "us, Pop: " << std::chrono::duration_cast<std::chrono::microseconds>(startx2 - startx).count();
     }
