@@ -75,7 +75,7 @@ VideoReader::VideoReader(std::string fn, DLContext ctx, int width, int height, i
         }
         return;
     }
-    
+
     fmt_ctx_.reset(fmt_ctx);
 
     // find stream info
@@ -254,12 +254,10 @@ int64_t VideoReader::FrameToPTS(int64_t pos) {
 }
 
 std::vector<int64_t> VideoReader::FramesToPTS(const std::vector<int64_t>& positions) {
-    auto nframe = GetFrameCount();
-    auto duration = fmt_ctx_->streams[actv_stm_idx_]->duration;
     std::vector<int64_t> ret;
     ret.reserve(positions.size());
     for (auto pos : positions) {
-        ret.emplace_back(pos * duration / nframe);
+        ret.emplace_back(frame_ts_[pos].pts);
     }
     return ret;
 }
@@ -271,12 +269,27 @@ bool VideoReader::Seek(int64_t pos) {
     eof_ = false;
 
     int64_t ts = FrameToPTS(pos);
-    int ret = av_seek_frame(fmt_ctx_.get(), actv_stm_idx_, ts, AVSEEK_FLAG_BACKWARD);
+    int flag = curr_frame_ > pos ? AVSEEK_FLAG_BACKWARD : 0;
+    int ret = av_seek_frame(fmt_ctx_.get(), actv_stm_idx_, ts, flag);
     if (ret < 0) LOG(WARNING) << "Failed to seek file to position: " << pos;
     // LOG(INFO) << "seek return: " << ret;
     decoder_->Start();
     if (ret >= 0) {
         curr_frame_ = pos;
+    }
+    return ret >= 0;
+}
+
+bool VideoReader::GoStart() {
+    if (!fmt_ctx_) return false;
+    if (curr_frame_ == 0) return true;
+    decoder_->Clear();
+    eof_ = false;
+    int64_t ts = FrameToPTS(0);
+    int ret = av_seek_frame(fmt_ctx_.get(), actv_stm_idx_, ts, AVSEEK_FLAG_BACKWARD);
+    if (ret < 0) LOG(WARNING) << "Failed to seek file to position: " << 0;
+    if (ret >= 0) {
+        curr_frame_ = 0;
     }
     return ret >= 0;
 }
@@ -296,12 +309,16 @@ bool VideoReader::SeekAccurate(int64_t pos) {
     int64_t curr_key_pos = LocateKeyframe(curr_frame_);
     if (key_pos != curr_key_pos) {
         // need to seek to keyframes first
-        bool ret = Seek(key_pos);
+        bool ret = GoStart();
+        if (!ret) return false;
+        ret = Seek(key_pos);
         if (!ret) return false;
         SkipFrames(pos - key_pos);
     } else if (pos < curr_frame_) {
         // need seek backwards to the nearest keyframe
-        bool ret = Seek(key_pos);
+        bool ret = GoStart();
+        if (!ret) return false;
+        ret = Seek(key_pos);
         if (!ret) return false;
         SkipFrames(pos - key_pos);
     } else {
