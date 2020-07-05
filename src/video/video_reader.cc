@@ -271,6 +271,9 @@ bool VideoReader::Seek(int64_t pos) {
     int64_t ts = FrameToPTS(pos);
     int flag = curr_frame_ > pos ? AVSEEK_FLAG_BACKWARD : 0;
     int ret = av_seek_frame(fmt_ctx_.get(), actv_stm_idx_, ts, flag);
+    if (flag != AVSEEK_FLAG_BACKWARD && ret < 0){
+        ret = av_seek_frame(fmt_ctx_.get(), actv_stm_idx_, ts, AVSEEK_FLAG_BACKWARD);
+    }
     if (ret < 0) LOG(WARNING) << "Failed to seek file to position: " << pos;
     // LOG(INFO) << "seek return: " << ret;
     decoder_->Start();
@@ -437,7 +440,7 @@ void VideoReader::IndexKeyframes() {
             [](const AVFrameTime& a, const AVFrameTime& b) -> bool
                 {return a.pts < b.pts;});
     curr_frame_ = GetFrameCount();
-    ret = Seek(0);
+    ret = GoStart();
 }
 
 runtime::NDArray VideoReader::GetKeyIndices() {
